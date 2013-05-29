@@ -2339,7 +2339,7 @@ _type_map72.update({
 
 
 class _TdsSession(object):
-    def __init__(self, tds, transport):
+    def __init__(self, tds, transport, message_callback=None):
         self.out_pos = 8
         self.res_info = None
         self.in_cancel = False
@@ -2359,6 +2359,7 @@ class _TdsSession(object):
         self.rows_affected = -1
         self.use_tz = tds.use_tz
         self._spid = 0
+        self._message_callback = message_callback
 
     def raise_db_exception(self):
         if not self.messages:
@@ -2533,6 +2534,13 @@ class _TdsSession(object):
 
         # special case
         self.messages.append(msg)
+
+        if self._message_callback is not None:
+            try:
+                self._message_callback(msg)
+            except Exception:
+                logger.exception("Problem with calling message callback")
+                raise
 
     def process_row(self):
         r = self._reader
@@ -3456,7 +3464,7 @@ class _StateContext(object):
 
 
 class _TdsSocket(object):
-    def __init__(self, use_tz=None):
+    def __init__(self, use_tz=None, message_callback=None):
         self._is_connected = False
         self.env = _TdsEnv()
         self.collation = None
@@ -3468,12 +3476,13 @@ class _TdsSocket(object):
         self._bufsize = 4096
         self.tds_version = TDS74
         self.use_tz = use_tz
+        self._message_callback = message_callback
 
     def login(self, login, sock):
         self.login = None
         self._bufsize = login.blocksize
         self.query_timeout = login.query_timeout
-        self._main_session = _TdsSession(self, self)
+        self._main_session = _TdsSession(self, self, message_callback=self._message_callback)
         self._sock = sock
         self.tds_version = login.tds_version
         if IS_TDS71_PLUS(self):
@@ -3495,7 +3504,8 @@ class _TdsSocket(object):
         if self._mars_enabled:
             from .smp import SmpManager
             self._smp_manager = SmpManager(self)
-            self._main_session = _TdsSession(self, self._smp_manager.create_session())
+            self._main_session = _TdsSession(self, self._smp_manager.create_session(),
+                                             message_callback=self._message_callback)
         self._is_connected = True
         q = []
         if text_size:
@@ -3515,7 +3525,7 @@ class _TdsSocket(object):
         return self._main_session
 
     def create_session(self):
-        return _TdsSession(self, self._smp_manager.create_session())
+        return _TdsSession(self, self._smp_manager.create_session(), message_callback=self._message_callback)
 
     def read(self, size):
         buf = self._sock.recv(size)

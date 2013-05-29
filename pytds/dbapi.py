@@ -154,7 +154,7 @@ class _Connection(object):
                 err = LoginError("Cannot connect to server '{0}': {1}".format(host, e), e)
                 continue
             try:
-                self._conn = _TdsSocket(self._use_tz)
+                self._conn = _TdsSocket(self._use_tz, message_callback=self._message_callback)
                 self._conn.login(self._login, sock)
                 break
             except Exception as e:
@@ -258,6 +258,19 @@ class _Connection(object):
 
     def __exit__(self, *args):
         self.close()
+
+    def _message_callback(self, message):
+        log_func = logger.info
+        if message['priv_msg_type']:
+            log_func = logger.warning
+
+        log_func(
+            "server: %s, line: %s, severity: %s, message: %s",
+            message['server'],
+            message['line_number'],
+            message['severity'],
+            message['message']
+        )
 
     def commit(self):
         """
